@@ -1,223 +1,370 @@
 import datetime
-from sqlalchemy import (
-    Column, String, Integer, Boolean, Text, JSON, DateTime, ForeignKey, Index
-)
-from sqlalchemy.orm import relationship
-from backend.app.database import Base
+import json
+import re
 
 def utc_now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-class User(Base):
+class Field:
+    def __init__(self, name: str):
+        self.name = name
+
+    def __eq__(self, other):
+        return QueryExpr({self.name: other})
+
+    def __ne__(self, other):
+        return QueryExpr({self.name: {"$ne": other}})
+
+    def __gt__(self, other):
+        return QueryExpr({self.name: {"$gt": other}})
+
+    def __ge__(self, other):
+        return QueryExpr({self.name: {"$gte": other}})
+
+    def __lt__(self, other):
+        return QueryExpr({self.name: {"$lt": other}})
+
+    def __le__(self, other):
+        return QueryExpr({self.name: {"$lte": other}})
+
+    def ilike(self, pattern: str):
+        if not pattern:
+            return QueryExpr({self.name: ""})
+        if pattern.startswith("%") or pattern.endswith("%"):
+            clean = pattern.strip("%")
+            regex = re.escape(clean)
+        else:
+            regex = f"^{re.escape(pattern)}$"
+        return QueryExpr({self.name: {"$regex": regex, "$options": "i"}})
+
+    def in_(self, values):
+        return QueryExpr({self.name: {"$in": list(values)}})
+
+    def desc(self):
+        return (self.name, -1)
+
+    def asc(self):
+        return (self.name, 1)
+
+
+class QueryExpr:
+    def __init__(self, query: dict):
+        self.query = query
+
+    def to_mongo(self) -> dict:
+        return self.query
+
+    def __or__(self, other):
+        q1 = self.query
+        q2 = other.to_mongo() if hasattr(other, "to_mongo") else (other.query if isinstance(other, QueryExpr) else other)
+        list1 = q1.get("$or", [q1]) if (isinstance(q1, dict) and len(q1) == 1 and "$or" in q1) else [q1]
+        list2 = q2.get("$or", [q2]) if (isinstance(q2, dict) and len(q2) == 1 and "$or" in q2) else [q2]
+        return QueryExpr({"$or": list1 + list2})
+
+    def __and__(self, other):
+        q1 = self.query
+        q2 = other.to_mongo() if hasattr(other, "to_mongo") else (other.query if isinstance(other, QueryExpr) else other)
+        list1 = q1.get("$and", [q1]) if (isinstance(q1, dict) and len(q1) == 1 and "$and" in q1) else [q1]
+        list2 = q2.get("$and", [q2]) if (isinstance(q2, dict) and len(q2) == 1 and "$and" in q2) else [q2]
+        return QueryExpr({"$and": list1 + list2})
+
+
+class ModelMeta(type):
+    def __getattr__(cls, name: str):
+        return Field(name)
+
+
+class _DummyMetadata:
+    def create_all(self, bind=None):
+        pass
+
+
+class Base:
+    metadata = _DummyMetadata()
+
+
+class Document(Base, metaclass=ModelMeta):
+    __tablename__ = "documents"
+
+    def __init__(self, **kwargs):
+        for k, v in self.default_values().items():
+            setattr(self, k, v)
+        for k, v in kwargs.items():
+            setattr(self, k, self._clean_val(v))
+
+    @classmethod
+    def default_values(cls) -> dict:
+        return {}
+
+    @staticmethod
+    def _clean_val(v):
+        if isinstance(v, str) and (
+            (v.startswith("{") and v.endswith("}")) or (v.startswith("[") and v.endswith("]"))
+        ):
+            try:
+                return json.loads(v)
+            except Exception:
+                return v
+        return v
+
+    def to_dict(self) -> dict:
+        d = {}
+        for k, v in self.__dict__.items():
+            if k.startswith("_"):
+                continue
+            d[k] = v
+        return d
+
+    @classmethod
+    def from_doc(cls, doc: dict):
+        if not doc:
+            return None
+        data = {k: cls._clean_val(v) for k, v in doc.items() if k != "_id"}
+        return cls(**data)
+
+
+class User(Document):
     __tablename__ = "users"
 
-    id = Column(String, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    email = Column(String, unique=True, index=True, nullable=False)
-    password_hash = Column(String, nullable=False)
-    is_onboarded = Column(Boolean, default=False)
-    target_career_id = Column(String, nullable=True)
-    created_at = Column(String, default=utc_now_iso)
-    updated_at = Column(String, default=utc_now_iso, onupdate=utc_now_iso)
+    @classmethod
+    def default_values(cls):
+        return {
+            "id": "",
+            "name": "",
+            "email": "",
+            "password_hash": "",
+            "is_onboarded": False,
+            "target_career_id": None,
+            "created_at": utc_now_iso(),
+            "updated_at": utc_now_iso(),
+        }
 
-    # Relationships
-    profile = relationship("CareerProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
-    assessments = relationship("Assessment", back_populates="user", cascade="all, delete-orphan")
-    roadmaps = relationship("LearningRoadmap", back_populates="user", cascade="all, delete-orphan")
-    evidences = relationship("SkillEvidence", back_populates="user", cascade="all, delete-orphan")
-    resumes = relationship("ResumeAnalysis", back_populates="user", cascade="all, delete-orphan")
-    chat_messages = relationship("ChatMessage", back_populates="user", cascade="all, delete-orphan")
-    career_analyses = relationship("CareerAnalysis", back_populates="user", cascade="all, delete-orphan")
-    interviews = relationship("Interview", back_populates="user", cascade="all, delete-orphan")
-    insights = relationship("CareerInsight", back_populates="user", cascade="all, delete-orphan")
-    timeline_events = relationship("ProgressTimeline", back_populates="user", cascade="all, delete-orphan")
 
-class CareerProfile(Base):
+class CareerProfile(Document):
     __tablename__ = "career_profiles"
 
-    id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, ForeignKey("users.id"), unique=True, index=True, nullable=False)
-    education = Column(JSON, default=dict)
-    technical_skills = Column(JSON, default=list)
-    soft_skills = Column(JSON, default=list)
-    interests = Column(JSON, default=list)
-    experience = Column(JSON, default=dict)
-    career_goals = Column(JSON, default=dict)
-    work_preferences = Column(JSON, default=dict)
-    readiness_score = Column(Integer, default=50)
-    readiness_breakdown = Column(JSON, default=dict)
-    current_direction = Column(String, default="Software Developer")
-    match_percentage = Column(Integer, default=70)
-    direction_explanation = Column(Text, default="")
-    biggest_opportunity = Column(Text, default="")
-    next_best_action = Column(Text, default="")
-    created_at = Column(String, default=utc_now_iso)
-    updated_at = Column(String, default=utc_now_iso, onupdate=utc_now_iso)
+    @classmethod
+    def default_values(cls):
+        return {
+            "id": "",
+            "user_id": "",
+            "education": {},
+            "technical_skills": [],
+            "soft_skills": [],
+            "interests": [],
+            "experience": {},
+            "career_goals": {},
+            "work_preferences": {},
+            "readiness_score": 50,
+            "readiness_breakdown": {},
+            "current_direction": "Software Developer",
+            "match_percentage": 70,
+            "direction_explanation": "",
+            "biggest_opportunity": "",
+            "next_best_action": "",
+            "created_at": utc_now_iso(),
+            "updated_at": utc_now_iso(),
+        }
 
-    user = relationship("User", back_populates="profile")
 
-class CareerRole(Base):
+class CareerRole(Document):
     __tablename__ = "career_roles"
 
-    id = Column(String, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    slug = Column(String, unique=True, index=True, nullable=False)
-    category = Column(String, index=True, nullable=False)
-    description = Column(Text, nullable=False)
-    what_they_do = Column(JSON, default=list)
-    core_technical_skills = Column(JSON, default=list)
-    soft_skills = Column(JSON, default=list)
-    common_tools = Column(JSON, default=list)
-    entry_level_expectations = Column(JSON, default=list)
-    suggested_projects = Column(JSON, default=list)
-    career_progression = Column(JSON, default=list)
-    related_careers = Column(JSON, default=list)
+    @classmethod
+    def default_values(cls):
+        return {
+            "id": "",
+            "title": "",
+            "slug": "",
+            "category": "",
+            "description": "",
+            "what_they_do": [],
+            "core_technical_skills": [],
+            "soft_skills": [],
+            "common_tools": [],
+            "entry_level_expectations": [],
+            "suggested_projects": [],
+            "career_progression": [],
+            "related_careers": [],
+        }
 
-class Assessment(Base):
+
+class Assessment(Document):
     __tablename__ = "assessments"
 
-    id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, ForeignKey("users.id"), index=True, nullable=False)
-    current_question_index = Column(Integer, default=0)
-    is_completed = Column(Boolean, default=False)
-    answers = Column(JSON, default=list)
-    category_scores = Column(JSON, default=dict)
-    ai_analysis = Column(JSON, default=dict)
-    started_at = Column(String, default=utc_now_iso)
-    completed_at = Column(String, nullable=True)
+    @classmethod
+    def default_values(cls):
+        return {
+            "id": "",
+            "user_id": "",
+            "current_question_index": 0,
+            "is_completed": False,
+            "answers": [],
+            "category_scores": {},
+            "ai_analysis": {},
+            "started_at": utc_now_iso(),
+            "completed_at": None,
+        }
 
-    user = relationship("User", back_populates="assessments")
 
-class LearningResource(Base):
+class LearningResource(Document):
     __tablename__ = "learning_resources"
 
-    id = Column(String, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    provider = Column(String, nullable=False)
-    url = Column(String, nullable=False)
-    category = Column(String, index=True, nullable=False)
-    difficulty = Column(String, index=True, nullable=False)
-    estimated_duration = Column(String, default="")
-    resource_type = Column(String, default="Guide")
-    related_skills = Column(JSON, default=list)
-    is_verified = Column(Boolean, default=True)
+    @classmethod
+    def default_values(cls):
+        return {
+            "id": "",
+            "title": "",
+            "provider": "",
+            "url": "",
+            "category": "",
+            "difficulty": "",
+            "estimated_duration": "",
+            "resource_type": "Guide",
+            "related_skills": [],
+            "is_verified": True,
+        }
 
-class LearningRoadmap(Base):
+
+class LearningRoadmap(Document):
     __tablename__ = "learning_roadmaps"
 
-    id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, ForeignKey("users.id"), index=True, nullable=False)
-    target_career_id = Column(String, nullable=False)
-    target_career_title = Column(String, nullable=False)
-    phases = Column(JSON, default=list)
-    overall_progress = Column(Integer, default=0)
-    generated_at = Column(String, default=utc_now_iso)
-    updated_at = Column(String, default=utc_now_iso, onupdate=utc_now_iso)
+    @classmethod
+    def default_values(cls):
+        return {
+            "id": "",
+            "user_id": "",
+            "target_career_id": "",
+            "target_career_title": "",
+            "phases": [],
+            "overall_progress": 0,
+            "generated_at": utc_now_iso(),
+            "updated_at": utc_now_iso(),
+        }
 
-    user = relationship("User", back_populates="roadmaps")
 
-class SkillEvidence(Base):
+class SkillEvidence(Document):
     __tablename__ = "skill_evidences"
 
-    id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, ForeignKey("users.id"), index=True, nullable=False)
-    skill_name = Column(String, nullable=False)
-    evidence_type = Column(String, nullable=False)
-    title = Column(String, nullable=False)
-    url = Column(String, nullable=True)
-    description = Column(Text, default="")
-    verified_status = Column(String, default="Evidence Added")
-    strength = Column(String, default="Moderate")
-    created_at = Column(String, default=utc_now_iso)
+    @classmethod
+    def default_values(cls):
+        return {
+            "id": "",
+            "user_id": "",
+            "skill_name": "",
+            "evidence_type": "",
+            "title": "",
+            "url": None,
+            "description": "",
+            "verified_status": "Evidence Added",
+            "strength": "Moderate",
+            "created_at": utc_now_iso(),
+        }
 
-    user = relationship("User", back_populates="evidences")
 
-class Interview(Base):
+class Interview(Document):
     __tablename__ = "interviews"
 
-    id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, ForeignKey("users.id"), index=True, nullable=False)
-    career_title = Column(String, nullable=False)
-    difficulty = Column(String, default="Entry-Level")
-    interview_type = Column(String, default="Technical")
-    status = Column(String, default="in_progress")
-    questions = Column(JSON, default=list)
-    answers = Column(JSON, default=list)
-    final_summary = Column(JSON, nullable=True)
-    created_at = Column(String, default=utc_now_iso)
-    completed_at = Column(String, nullable=True)
+    @classmethod
+    def default_values(cls):
+        return {
+            "id": "",
+            "user_id": "",
+            "career_title": "",
+            "difficulty": "Entry-Level",
+            "interview_type": "Technical",
+            "status": "in_progress",
+            "questions": [],
+            "answers": [],
+            "final_summary": None,
+            "created_at": utc_now_iso(),
+            "completed_at": None,
+        }
 
-    user = relationship("User", back_populates="interviews")
 
-class ResumeAnalysis(Base):
+class ResumeAnalysis(Document):
     __tablename__ = "resume_analyses"
 
-    id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, ForeignKey("users.id"), index=True, nullable=False)
-    target_role = Column(String, nullable=False)
-    file_name = Column(String, default="Pasted_Resume")
-    overall_score = Column(Integer, default=0)
-    completeness_score = Column(Integer, default=0)
-    keyword_match_score = Column(Integer, default=0)
-    impact_score = Column(Integer, default=0)
-    detected_skills = Column(JSON, default=list)
-    missing_skills = Column(JSON, default=list)
-    soft_skills_detected = Column(JSON, default=list)
-    sections = Column(JSON, default=list)
-    suggestions = Column(JSON, default=list)
-    bullet_point_rewrites = Column(JSON, default=list)
-    analyzed_at = Column(String, default=utc_now_iso)
+    @classmethod
+    def default_values(cls):
+        return {
+            "id": "",
+            "user_id": "",
+            "target_role": "",
+            "file_name": "Pasted_Resume",
+            "overall_score": 0,
+            "completeness_score": 0,
+            "keyword_match_score": 0,
+            "impact_score": 0,
+            "detected_skills": [],
+            "missing_skills": [],
+            "soft_skills_detected": [],
+            "sections": [],
+            "suggestions": [],
+            "bullet_point_rewrites": [],
+            "analyzed_at": utc_now_iso(),
+        }
 
-    user = relationship("User", back_populates="resumes")
 
-class ChatMessage(Base):
+class ChatMessage(Document):
     __tablename__ = "chat_history"
 
-    id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, ForeignKey("users.id"), index=True, nullable=False)
-    role = Column(String, nullable=False)
-    content = Column(Text, nullable=False)
-    mode = Column(String, default="local_engine")
-    timestamp = Column(String, default=utc_now_iso)
+    @classmethod
+    def default_values(cls):
+        return {
+            "id": "",
+            "user_id": "",
+            "role": "",
+            "content": "",
+            "mode": "local_engine",
+            "timestamp": utc_now_iso(),
+        }
 
-    user = relationship("User", back_populates="chat_messages")
 
-class CareerAnalysis(Base):
+class CareerAnalysis(Document):
     __tablename__ = "career_analyses"
 
-    id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, ForeignKey("users.id"), index=True, nullable=False)
-    analysis_date = Column(String, default=utc_now_iso)
-    recommended_roles = Column(JSON, default=list)
-    readiness_score = Column(Integer, default=0)
-    target_role = Column(String, default="")
+    @classmethod
+    def default_values(cls):
+        return {
+            "id": "",
+            "user_id": "",
+            "analysis_date": utc_now_iso(),
+            "recommended_roles": [],
+            "readiness_score": 0,
+            "target_role": "",
+        }
 
-    user = relationship("User", back_populates="career_analyses")
 
-class CareerInsight(Base):
+class CareerInsight(Document):
     __tablename__ = "career_insights"
 
-    id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, ForeignKey("users.id"), index=True, nullable=False)
-    title = Column(String, nullable=False)
-    observation = Column(Text, nullable=False)
-    suggested_action = Column(Text, nullable=False)
-    action_route = Column(String, default="/roadmap")
-    category = Column(String, default="readiness")
-    is_read = Column(Boolean, default=False)
-    created_at = Column(String, default=utc_now_iso)
+    @classmethod
+    def default_values(cls):
+        return {
+            "id": "",
+            "user_id": "",
+            "title": "",
+            "observation": "",
+            "suggested_action": "",
+            "action_route": "/roadmap",
+            "category": "readiness",
+            "is_read": False,
+            "created_at": utc_now_iso(),
+        }
 
-    user = relationship("User", back_populates="insights")
 
-class ProgressTimeline(Base):
+class ProgressTimeline(Document):
     __tablename__ = "progress_timeline"
 
-    id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, ForeignKey("users.id"), index=True, nullable=False)
-    type = Column(String, nullable=False)
-    title = Column(String, nullable=False)
-    description = Column(Text, nullable=False)
-    timestamp = Column(String, default=utc_now_iso)
-    meta = Column(JSON, default=dict)
-
-    user = relationship("User", back_populates="timeline_events")
+    @classmethod
+    def default_values(cls):
+        return {
+            "id": "",
+            "user_id": "",
+            "type": "",
+            "title": "",
+            "description": "",
+            "timestamp": utc_now_iso(),
+            "meta": {},
+        }

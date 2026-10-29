@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from backend.app.database import Session
 from backend.app.models import (
     CareerRole, LearningResource, User, CareerProfile, LearningRoadmap, ProgressTimeline
 )

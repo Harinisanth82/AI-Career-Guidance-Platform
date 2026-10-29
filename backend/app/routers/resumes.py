@@ -1,7 +1,7 @@
 import uuid
 import datetime
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from backend.app.database import Session
 from backend.app.database import get_db
 from backend.app.models import User, ResumeAnalysis, CareerRole, CareerProfile, ProgressTimeline
 from backend.app.schemas import ResumeAnalyzeRequest, ApiResponse

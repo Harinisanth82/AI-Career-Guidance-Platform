@@ -2,14 +2,14 @@ import uuid
 import datetime
 import json
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from backend.app.database import Session
 from backend.app.database import get_db
 from backend.app.models import User, Assessment, CareerProfile, CareerRole, ProgressTimeline, CareerAnalysis
 from backend.app.schemas import (
     AssessmentSubmitRequest, AssessmentSaveProgressRequest, ChallengeValidateRequest, ApiResponse
 )
 from backend.app.auth import get_current_user
-from backend.app.services.assessment_questions import DIMENSIONS
+from backend.app.services.assessment_questions import DIMENSIONS, ADAPTIVE_QUESTION_BANK
 from backend.app.services.gemini_service import call_gemini_structured
 
 router = APIRouter(prefix="/api/assessment", tags=["Assessments"])
@@ -17,7 +17,7 @@ MAX_ASSESSMENT_QUESTIONS = 10
 
 @router.get("/questions", response_model=ApiResponse)
 def get_questions():
-    return ApiResponse(success=True, data={"totalQuestions": MAX_ASSESSMENT_QUESTIONS, "dimensions": DIMENSIONS, "questions": []})
+    return ApiResponse(success=True, data={"totalQuestions": MAX_ASSESSMENT_QUESTIONS, "dimensions": DIMENSIONS, "questions": ADAPTIVE_QUESTION_BANK[:MAX_ASSESSMENT_QUESTIONS]})
 
 @router.get("/current", response_model=ApiResponse)
 def get_current_assessment(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):

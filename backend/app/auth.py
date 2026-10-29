@@ -4,7 +4,7 @@ import jwt
 import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
+from backend.app.database import Session
 from backend.app.database import get_db
 from backend.app.models import User
 

@@ -2,7 +2,7 @@ import uuid
 import datetime
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from backend.app.database import Session
 from backend.app.database import get_db
 from backend.app.models import User, CareerProfile, LearningRoadmap, SkillEvidence, Interview, CareerInsight
 from backend.app.schemas import ApiResponse

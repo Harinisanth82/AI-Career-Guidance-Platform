@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from sqlalchemy import text
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -42,9 +41,9 @@ async def lifespan(app: FastAPI):
         jwt_secret = os.getenv("JWT_SECRET_KEY") or os.getenv("JWT_SECRET")
         if not jwt_secret or len(jwt_secret) < 32 or jwt_secret == "career-guidance-super-secret-jwt-key-2026":
             raise RuntimeError("Production requires JWT_SECRET_KEY with at least 32 characters.")
-        database_url = os.getenv("DATABASE_URL", "")
-        if not database_url.startswith(("postgresql://", "postgresql+psycopg://")):
-            raise RuntimeError("Production requires persistent PostgreSQL via DATABASE_URL; SQLite and MongoDB mirror mode are not supported.")
+        mongo_uri = os.getenv("MONGODB_URI") or os.getenv("DATABASE_URL", "")
+        if not mongo_uri.startswith(("mongodb://", "mongodb+srv://")):
+            raise RuntimeError("Production requires persistent MongoDB via MONGODB_URI.")
         if not os.getenv("FRONTEND_ORIGINS"):
             raise RuntimeError("Production requires FRONTEND_ORIGINS with the deployed frontend origin.")
     # 1. Initialize Database Tables
@@ -131,16 +130,10 @@ def root():
 @app.get("/api/health")
 def health():
     mongo_ok = is_mongo_connected()
-    try:
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-        database_ok = True
-    except Exception:
-        database_ok = False
     return {
-        "status": "healthy" if database_ok else "degraded",
-        "database": engine.dialect.name,
-        "database_connected": database_ok,
+        "status": "healthy" if mongo_ok else "degraded",
+        "database": "mongodb",
+        "database_connected": mongo_ok,
         "mongodb_connected": mongo_ok,
         "engine": "local_career_intelligence",
         "gemini_configured": bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")),

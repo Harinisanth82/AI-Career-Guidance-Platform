@@ -191,24 +191,7 @@ def sync_instance_to_mongo(instance, action: str = "upsert"):
     except Exception as exc:
         logger.debug("Mongo sync error on %s: %s", getattr(instance, "__tablename__", "unknown"), exc)
 
-_orm_sync_registered = False
-
 def setup_mongo_orm_sync():
-    """Register SQLAlchemy ORM flush hooks to automatically sync mutations to MongoDB."""
-    global _orm_sync_registered
-    if _orm_sync_registered:
-        return
-    _orm_sync_registered = True
-
-    from sqlalchemy import event
-    from sqlalchemy.orm import Session
-
-    @event.listens_for(Session, "after_flush")
-    def _handle_after_flush(session, flush_context):
-        for obj in list(session.new):
-            sync_instance_to_mongo(obj, "upsert")
-        for obj in list(session.dirty):
-            sync_instance_to_mongo(obj, "upsert")
-        for obj in list(session.deleted):
-            sync_instance_to_mongo(obj, "delete")
+    """No-op retained for backwards compatibility: Mongo is now the native primary store."""
+    pass
 

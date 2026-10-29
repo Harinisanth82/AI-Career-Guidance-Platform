@@ -1,6 +1,6 @@
 import re
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from backend.app.database import Session
 from backend.app.database import get_db
 from backend.app.models import LearningResource, User, CareerProfile, CareerRole
 from backend.app.schemas import ApiResponse
