@@ -1,4 +1,6 @@
-# AI-Powered Career Guidance and Employability Enhancement Platform
+# AI-Career-Guidance-Platform
+
+Full-stack career development app with a React and TypeScript frontend, FastAPI backend, PostgreSQL support, and AI-powered career guidance.
 
 An intelligent, full-stack, database-driven career development and employability diagnostic platform. The system evaluates candidate competencies, pinpoints skill gaps against industry benchmarks, synthesizes structured 5-phase career progression roadmaps, scores multi-factor employability readiness, and delivers personalized career guidance.
 
