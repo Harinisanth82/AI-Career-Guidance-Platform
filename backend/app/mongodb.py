@@ -108,14 +108,25 @@ def get_mongo_db():
         return _db
     return None
 
+_last_ping_time = 0
+_last_ping_status = False
+
 def is_mongo_connected() -> bool:
+    global _last_ping_time, _last_ping_status
+    import time
+    now = time.time()
+    if _last_ping_status and (now - _last_ping_time) < 30:
+        return True
     try:
         client = get_mongo_client()
         if client:
             client.admin.command("ping")
+            _last_ping_status = True
+            _last_ping_time = now
             return True
         return False
     except Exception:
+        _last_ping_status = False
         return False
 
 def init_mongo_indexes():
