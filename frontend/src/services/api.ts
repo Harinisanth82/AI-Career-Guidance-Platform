@@ -24,6 +24,14 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   const exec = async () => {
+    if (import.meta.env.PROD && !/^https?:\/\//i.test(API_BASE)) {
+      throw new ApiError(
+        "Production API URL is not configured. Set VITE_API_BASE_URL in Vercel to your backend URL ending in /api, then redeploy.",
+        0,
+        "API_BASE_URL_MISSING",
+      );
+    }
+
     const token = localStorage.getItem("career_framework_token");
 
     const headers: HeadersInit = {

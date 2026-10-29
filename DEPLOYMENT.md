@@ -51,11 +51,11 @@ The live Gemini interview test at `python backend/tests/test_live_interview.py` 
 
 In GitHub, create a new empty repository. Do not select options to add a README, license, or `.gitignore` because this folder already contains project files. Copy its HTTPS repository address.
 
-The project folder currently has no Git repository or remote configured. From PowerShell at the project root, inspect the files before staging and ensure local environment files are ignored:
+This project is already initialized on `main` and connected to the GitHub repository. To check the current branch and confirm that local environment files are ignored, run from PowerShell at the project root:
 
 ```powershell
-git init -b main
 git status --short
+git remote -v
 git check-ignore backend/.env backend/career_guidance.db
 ```
 
@@ -67,15 +67,14 @@ git status --short
 git diff --cached --name-only
 ```
 
-Do not commit if `backend/.env`, any `.env` other than the sanitized `.env.example` templates, a database file, a virtual environment, or a credential file appears in the staged list. Then commit and connect the empty GitHub repository:
+Do not commit if `backend/.env`, any real `.env` file, a database file, a virtual environment, or a credential file appears in the staged list. Then commit and push to the connected repository:
 
 ```powershell
 git commit -m "Prepare application for production deployment"
-git remote add origin https://github.com/YOUR_ACCOUNT/YOUR_REPOSITORY.git
-git push -u origin main
+git push
 ```
 
-Replace the repository address with the one GitHub shows. If `git remote add origin` reports that a remote already exists, inspect it with `git remote -v` and do not overwrite it without confirming that it is the intended repository.
+Use `git remote -v` to verify that `origin` points to the intended GitHub repository before pushing.
 
 ## 3. Deploy the backend and database
 
@@ -123,7 +122,7 @@ Add this frontend environment variable for **Production** (and Preview if you wa
 |---|---|
 | `VITE_API_BASE_URL` | `https://YOUR-BACKEND-HOST/api` |
 
-Deploy. The included `frontend/vercel.json` rewrites direct page visits to the SPA entry point so routes such as `/interview` work after refresh. After Vercel assigns the production domain, add that exact origin to the backend's `FRONTEND_ORIGINS` variable and redeploy/restart the backend.
+Set this variable in Vercel; do not commit a production `.env` file. The `.env.example` files document local defaults and required variable names only. Deploy. The included `frontend/vercel.json` rewrites direct page visits to the SPA entry point so routes such as `/interview` work after refresh. After Vercel assigns the production domain, add that exact origin to the backend's `FRONTEND_ORIGINS` variable and redeploy/restart the backend.
 
 ## 5. Verify the live application
 
@@ -136,6 +135,7 @@ Use a test account and non-production data during verification. Confirm that Gem
 - **Vercel build fails:** Confirm Root Directory is `frontend`, then use `npm ci` and `npm run build` locally from the frontend folder. Check the build log for the first TypeScript or dependency error.
 - **Nested page returns 404:** Confirm the Vercel project root is `frontend` and `frontend/vercel.json` is present in the deployed commit.
 - **API calls fail or show CORS errors:** Confirm `VITE_API_BASE_URL` ends in `/api`; confirm the backend is healthy; set `FRONTEND_ORIGINS` to the exact deployed Vercel origin without a trailing slash, then redeploy the backend.
+- **Request failed with status 405:** The Vercel frontend is receiving the API POST itself. Deploy the FastAPI backend, set Vercel's `VITE_API_BASE_URL` to `https://YOUR-BACKEND-HOST/api`, and redeploy the frontend. The app now shows a configuration message instead of issuing production requests to a relative `/api` path when this setting is missing.
 - **Database connection or startup failure:** Confirm `DATABASE_URL` is the managed PostgreSQL URL, begins with `postgresql+psycopg://` (or `postgresql://`, which this app normalizes), and the service can reach the database. Check allowed network access and URL-encode special password characters.
 - **Backend refuses production startup:** Set `ENVIRONMENT=production`, a `JWT_SECRET_KEY` at least 32 characters long, PostgreSQL `DATABASE_URL`, and `FRONTEND_ORIGINS`.
 - **Gemini returns unavailable:** Set a valid `GEMINI_API_KEY` in the backend host and redeploy/restart the backend. Do not set it as a `VITE_` variable.
