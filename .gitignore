@@ -51,3 +51,6 @@ coverage/
 *.key
 credentials.json
 service-account*.json
+
+.vite/
+frontend/.vite/
